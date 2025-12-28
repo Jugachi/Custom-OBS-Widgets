@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Twitch Welcome Widget - Delayed Scroll</title>
+    <script src="https://cdn.jsdelivr.net/npm/comfy.js@latest/dist/comfy.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Arial', sans-serif; }
+        
+        #welcome-container {
+            display: flex;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            background: rgba(0, 0, 0, 0.4); 
+            backdrop-filter: blur(8px);
+            border: 3px solid rgba(255, 215, 0, 0.8); 
+            border-radius: 20px;
+            padding: 15px 30px;
+            width: fit-content;
+            position: relative;
+            left: 20px;
+            top: 20px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+            --start-x: 0px; --start-y: 0px; --end-x: 0px; --end-y: 0px;
+        }
+
+        @keyframes dynamicFadeIn {
+            from { opacity: 0; transform: translate(var(--start-x), var(--start-y)); }
+            to { opacity: 1; transform: translate(0, 0); }
+        }
+        @keyframes dynamicFadeOut {
+            from { opacity: 1; transform: translate(0, 0); }
+            to { opacity: 0; transform: translate(var(--end-x), var(--end-y)); }
+        }
+
+        .anim-fade-in { animation: dynamicFadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; pointer-events: auto; }
+        .anim-fade-out { animation: dynamicFadeOut 0.8s cubic-bezier(0.7, 0, 0.84, 0) forwards; pointer-events: none; }
+
+        .media-asset {
+            width: 100px;
+            height: 100px;
+            margin-right: 25px;
+            object-fit: contain;
+            filter: drop-shadow(0 0 15px rgba(255, 215, 0, 0.4));
+        }
+        
+        .hidden { display: none !important; }
+
+        #text-wrapper {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        #greeting {
+            color: #FFD700;
+            font-size: 24px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: -5px;
+        }
+
+        #name-boundary {
+            width: 350px;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+
+        #user-name {
+            display: inline-block;
+            color: white;
+            font-size: 48px;
+            font-weight: bold;
+            text-shadow: 0 0 10px #FFD700, 0 0 20px #FFA500;
+            padding-right: 80px;
+        }
+
+        @keyframes marquee {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-100%); }
+        }
+
+        .scrolling {
+            animation: marquee 8s linear 2s infinite;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="welcome-container">
+        <video id="media-video" class="media-asset hidden" muted playsinline loop>
+            <source src="assets/Hello_Heart.webm" type="video/webm">
+            <source src="assets/Hello_Heart.mp4" type="video/mp4">
+        </video>
+        <img id="media-image" class="media-asset hidden" src="assets/Hello_Heart.png" alt="Wave">
+        
+        <div id="text-wrapper">
+            <div id="greeting">Hello,</div>
+            <div id="name-boundary">
+                <div id="user-name"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        const TWITCH_CHANNEL = "Jugachi"; 
+        const DISPLAY_TIME = 8000;
+        const VIDEO_MODE = false;         
+        const DEBUG_MODE = false;          
+        const IN_DIRECTION = 'left';      
+        const OUT_DIRECTION = 'top';     
+
+        let seenUsers = [];
+        let isQueueActive = false;
+        let queue = [];
+        
+        const container = document.getElementById('welcome-container');
+        const nameEl = document.getElementById('user-name');
+        const nameBoundary = document.getElementById('name-boundary');
+        const videoEl = document.getElementById('media-video');
+        const imageEl = document.getElementById('media-image');
+
+        if (VIDEO_MODE) videoEl.classList.remove('hidden');
+        else imageEl.classList.remove('hidden');
+
+        function setAnimationDirections() {
+            const distance = 60; 
+            const dirs = {
+                'left': [`-${distance}px`, '0px'],
+                'right': [`${distance}px`, '0px'],
+                'top': ['0px', `-${distance}px`],
+                'bottom': ['0px', `${distance}px`]
+            };
+            container.style.setProperty('--start-x', dirs[IN_DIRECTION][0]);
+            container.style.setProperty('--start-y', dirs[IN_DIRECTION][1]);
+            container.style.setProperty('--end-x', dirs[OUT_DIRECTION][0]);
+            container.style.setProperty('--end-y', dirs[OUT_DIRECTION][1]);
+        }
+
+        function showNotification(username) {
+            setAnimationDirections();
+            
+            nameEl.innerText = username;
+            nameEl.classList.remove('scrolling'); 
+            
+            setTimeout(() => {
+                if (nameEl.offsetWidth > nameBoundary.offsetWidth) {
+                    nameEl.classList.add('scrolling');
+                }
+            }, 50);
+
+            if (VIDEO_MODE) { videoEl.currentTime = 0; videoEl.play(); }
+
+            container.classList.remove('anim-fade-out');
+            container.classList.add('anim-fade-in');
+
+            setTimeout(() => {
+                container.classList.remove('anim-fade-in');
+                container.classList.add('anim-fade-out');
+
+                setTimeout(() => {
+                    if (VIDEO_MODE) videoEl.pause();
+                    if (DEBUG_MODE) showNotification("ThisIsAVeryLongTestUsername");
+                    else { isQueueActive = false; processQueue(); }
+                }, 800); 
+            }, DISPLAY_TIME);
+        }
+
+        function processQueue() {
+            if (queue.length > 0 && !isQueueActive) {
+                isQueueActive = true;
+                showNotification(queue.shift());
+            }
+        }
+
+        ComfyJS.onChat = (user, message, flags, self, extra) => {
+            if (DEBUG_MODE) return;
+            if (!seenUsers.includes(user)) {
+                seenUsers.push(user);
+                queue.push(user);
+                processQueue();
+            }
+        };
+
+        if (DEBUG_MODE) showNotification("ThisIsAVeryLongTestUsername");
+        else ComfyJS.Init(TWITCH_CHANNEL);
+    </script>
+</body>
+</html>
