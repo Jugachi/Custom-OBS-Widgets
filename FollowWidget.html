@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Twitch Follow Alert</title>
+    <style>
+        /* Styling adapted from HelloWidget.html */
+        body { margin: 0; overflow: hidden; font-family: 'Arial', sans-serif; }
+        
+        #alert-container {
+            display: flex;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            background: rgba(0, 0, 0, 0.8); 
+            backdrop-filter: blur(10px);
+            border: 3px solid #ff4444; 
+            border-radius: 20px;
+            padding: 15px 30px;
+            width: fit-content;
+            position: relative;
+            left: 20px;
+            top: 20px;
+            box-shadow: 0 4px 15px rgba(255, 68, 68, 0.3);
+            --start-x: 0px; --start-y: 0px; --end-x: 0px; --end-y: 0px;
+        }
+
+        @keyframes dynamicFadeIn {
+            from { opacity: 0; transform: translate(var(--start-x), var(--start-y)); }
+            to { opacity: 1; transform: translate(0, 0); }
+        }
+        @keyframes dynamicFadeOut {
+            from { opacity: 1; transform: translate(0, 0); }
+            to { opacity: 0; transform: translate(var(--end-x), var(--end-y)); }
+        }
+
+        .anim-fade-in { animation: dynamicFadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .anim-fade-out { animation: dynamicFadeOut 0.8s cubic-bezier(0.7, 0, 0.84, 0) forwards; }
+
+        .media-asset {
+            width: 100px;
+            height: 100px;
+            margin-right: 25px;
+            object-fit: contain;
+            filter: drop-shadow(0 0 10px rgba(255, 68, 68, 0.5));
+        }
+
+        #text-wrapper { display: flex; flex-direction: column; }
+
+        #title {
+            color: #ff4444;
+            font-size: 22px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        #user-name {
+            color: white;
+            font-size: 42px;
+            font-weight: bold;
+            text-shadow: 0 0 10px #ff4444;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="alert-container">
+        <img class="media-asset" src="assets/Hello_Heart.png" alt="Follow">
+        <div id="text-wrapper">
+            <div id="title">New Follower!</div>
+            <div id="user-name"></div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script>
+        let queue = [];
+        let isQueueActive = false;
+        const container = document.getElementById('alert-container');
+        const nameEl = document.getElementById('user-name');
+        const alertSound = new Audio(CONFIG.SOUND_FILE);
+        alertSound.volume = CONFIG.SOUND_VOLUME;
+        alertSound.preload = 'auto';
+
+        function setAnimationDirections() {
+            const distance = 60;
+            const dirs = {
+                'left': [`-${distance}px`, '0px'],
+                'right': [`${distance}px`, '0px'],
+                'top': ['0px', `-${distance}px`],
+                'bottom': ['0px', `${distance}px`]
+            };
+            container.style.setProperty('--start-x', dirs[CONFIG.ANIMATION_IN][0]);
+            container.style.setProperty('--start-y', dirs[CONFIG.ANIMATION_IN][1]);
+            container.style.setProperty('--end-x', dirs[CONFIG.ANIMATION_OUT][0]);
+            container.style.setProperty('--end-y', dirs[CONFIG.ANIMATION_OUT][1]);
+        }
+
+        function showAlert(username) {
+            isQueueActive = true;
+            setAnimationDirections();
+            nameEl.innerText = username;
+
+            alertSound.currentTime = 0;
+            alertSound.play().catch(e => console.warn("Audio playback blocked or failed:", e));
+
+            container.classList.remove('anim-fade-out');
+            container.classList.add('anim-fade-in');
+
+            setTimeout(() => {
+                container.classList.replace('anim-fade-in', 'anim-fade-out');
+                setTimeout(() => {
+                    isQueueActive = false;
+                    processQueue();
+                }, 800);
+            }, CONFIG.DISPLAY_TIME);
+        }
+
+        function processQueue() {
+            if (queue.length > 0 && !isQueueActive) {
+                showAlert(queue.shift());
+            }
+        }
+
+        // --- Twitch WebSocket Logic ---
+        async function initTwitch() {
+            const userRes = await fetch(`https://api.twitch.tv/helix/users?login=${CONFIG.BROADCASTER_NAME}`, {
+                headers: { 
+                    'Client-ID': CONFIG.TWITCH_CLIENT_ID, 
+                    'Authorization': `Bearer ${CONFIG.TWITCH_OAUTH_TOKEN}` 
+                }
+            });
+            const userData = await userRes.json();
+            const broadcasterId = userData.data[0].id;
+
+            const socket = new WebSocket('wss://eventsub.wss.twitch.tv/ws');
+            
+            socket.onmessage = async (event) => {
+                const data = JSON.parse(event.data);
+                
+                if (data.metadata.message_type === 'session_welcome') {
+                    const sessionId = data.payload.session.id;
+                    await fetch('https://api.twitch.tv/helix/eventsub/subscriptions', {
+                        method: 'POST',
+                        headers: {
+                            'Client-ID': CONFIG.TWITCH_CLIENT_ID,
+                            'Authorization': `Bearer ${CONFIG.TWITCH_OAUTH_TOKEN}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            type: 'channel.follow',
+                            version: '2',
+                            condition: { 
+                                broadcaster_user_id: broadcasterId, 
+                                moderator_user_id: broadcasterId 
+                            },
+                            transport: { method: 'websocket', session_id: sessionId }
+                        })
+                    });
+                }
+
+                if (data.metadata.message_type === 'notification') {
+                    const followerName = data.payload.event.user_name;
+                    queue.push(followerName);
+                    processQueue();
+                }
+            };
+        }
+
+        // Manual Test Trigger: Press 'T' while interacting with the source
+        window.addEventListener('keydown', (e) => {
+            if (e.key.toLowerCase() === 't') {
+                queue.push("Test_Follower");
+                processQueue();
+            }
+        });
+
+        initTwitch().catch(console.error);
+    </script>
+</body>
+</html>
