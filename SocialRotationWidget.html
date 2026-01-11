@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dynamic Social Rotation - XL Edition</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Arial', sans-serif; }
+        
+        #widget-container {
+            display: flex;
+            align-items: center;
+            opacity: 0;
+            background: rgba(0, 0, 0, 0.85); 
+            backdrop-filter: blur(20px);
+            border: 6px solid rgba(255, 255, 255, 0.1);
+            border-radius: 40px;
+            padding: 40px 80px;
+            width: fit-content;
+            min-width: 850px;
+            position: relative;
+            left: 50px;
+            top: 50px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+            --offset: 150px;
+        }
+
+        /* Animation States */
+        .show { opacity: 1 !important; transform: translateX(0); }
+        .hide-left { opacity: 0 !important; transform: translateX(calc(var(--offset) * -1)); }
+        .hide-right { opacity: 0 !important; transform: translateX(var(--offset)); }
+
+        #icon-box {
+            margin-right: 55px;
+            width: 140px;
+            height: 140px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Large FontAwesome Icon */
+        #icon-element { font-size: 100px; }
+
+        /* Large Image Icon */
+        #icon-image {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        #content-box { display: flex; flex-direction: column; justify-content: center; }
+        
+        #label { 
+            color: rgba(255, 255, 255, 0.6); 
+            font-size: 34px; 
+            text-transform: uppercase; 
+            letter-spacing: 5px; 
+            font-weight: bold; 
+            margin-bottom: 8px; 
+        }
+
+        #value { 
+            color: white; 
+            font-size: 80px; 
+            font-weight: bold; 
+            white-space: nowrap; 
+        }
+
+        .hidden { display: none !important; }
+
+        /* Icon Colors */
+        .color-twitch { color: #9146FF; }
+        .color-youtube { color: #FF0000; }
+        .color-x { color: #FFFFFF; }
+        .color-discord { color: #5865F2; }
+        .color-instagram { color: #E1306C; }
+        .color-tiktok { color: #000000; text-shadow: 2px 2px #ff0050, -2px -2px #00f2ea; }
+        .color-kick { color: #53FC18; }
+        .color-facebook { color: #1877F2; }
+        .color-highlight { color: #FFD700; }
+    </style>
+</head>
+<body>
+
+    <div id="widget-container" class="hide-left">
+        <div id="icon-box">
+            <i id="icon-element" class="hidden"></i>
+            <img id="icon-image" class="hidden" src="" alt="Icon">
+        </div>
+        <div id="content-box">
+            <div id="label"></div>
+            <div id="value"></div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script>
+        // Internal labels and colors map
+        const PLATFORM_STYLE = {
+            twitch:    { label: "Twitch", color: "color-twitch" },
+            youtube:   { label: "YouTube", color: "color-youtube" },
+            x:         { label: "X / Twitter", color: "color-x" },
+            bluesky:   { label: "BlueSky", color: "" },
+            discord:   { label: "Discord", color: "color-discord" },
+            instagram: { label: "Instagram", color: "color-instagram" },
+            tiktok:    { label: "TikTok", color: "color-tiktok" },
+            kick:      { label: "Kick", color: "color-kick" },
+            facebook:  { label: "Facebook", color: "color-facebook" }
+        };
+
+        let twitchStats = { 
+            follower: "None yet!", 
+            subscriber: "None yet!", 
+            resub: "None yet!", 
+            raider: "None yet!", 
+            giftsub: "None yet!", 
+            cheer: "0 Bits" 
+        };
+
+        let rotationIndex = 0;
+        const container = document.getElementById('widget-container');
+        const iconEl = document.getElementById('icon-element');
+        const imgEl = document.getElementById('icon-image');
+        const labelEl = document.getElementById('label');
+        const valueEl = document.getElementById('value');
+
+        const params = new URLSearchParams(window.location.search);
+        const noRotate = params.has('noRotate');
+
+        function getRotationItems() {
+            let items = [];
+            
+            // 1. Socials from config.js
+            if (CONFIG.SOCIAL_PLATFORMS) {
+                Object.keys(CONFIG.SOCIAL_PLATFORMS).forEach(key => {
+                    const conf = CONFIG.SOCIAL_PLATFORMS[key];
+                    if (conf.enabled) {
+                        items.push({
+                            label: PLATFORM_STYLE[key]?.label || key,
+                            value: conf.handle,
+                            icon: conf.icon,
+                            color: PLATFORM_STYLE[key]?.color || ""
+                        });
+                    }
+                });
+            }
+
+            // 2. Twitch Events
+            const stats = [
+                { id: 'follower', label: "Latest Follower", icon: "fa-solid fa-user-plus" },
+                { id: 'subscriber', label: "Latest Sub", icon: "fa-solid fa-star" },
+                { id: 'resub', label: "Latest Re-Sub", icon: "fa-solid fa-sync" },
+                { id: 'raider', label: "Latest Raider", icon: "fa-solid fa-truck-ramp-box" },
+                { id: 'giftsub', label: "Latest Gift Sub", icon: "fa-solid fa-gift" },
+                { id: 'cheer', label: "Top Cheer", icon: "fa-solid fa-gem" }
+            ];
+
+            if (CONFIG.TWITCH_STATS_ROTATION) {
+                stats.forEach(s => {
+                    if (CONFIG.TWITCH_STATS_ROTATION[s.id]) {
+                        items.push({ label: s.label, value: twitchStats[s.id], icon: s.icon, color: "color-highlight" });
+                    }
+                });
+            }
+            return items;
+        }
+
+        async function rotate() {
+            const items = getRotationItems();
+            if (items.length === 0) return;
+
+            const current = items[rotationIndex];
+
+            // Animation Out
+            container.classList.remove('show');
+            container.classList.add('hide-right');
+            await new Promise(r => setTimeout(r, 800));
+
+            // Icon Handler
+            const isImage = /\.(png|jpg|jpeg|svg|webp)$/i.test(current.icon);
+            if (isImage) {
+                imgEl.src = `assets/${current.icon}`;
+                imgEl.classList.remove('hidden');
+                iconEl.classList.add('hidden');
+            } else {
+                iconEl.className = current.icon + " " + current.color;
+                iconEl.classList.remove('hidden');
+                imgEl.classList.add('hidden');
+            }
+
+            labelEl.innerText = current.label;
+            valueEl.innerText = current.value;
+
+            // Animation In
+            container.classList.replace('hide-right', 'hide-left');
+            await new Promise(r => setTimeout(r, 50));
+            container.classList.replace('hide-left', 'show');
+
+            rotationIndex = (rotationIndex + 1) % items.length;
+            if (!noRotate) setTimeout(rotate, CONFIG.DISPLAY_TIME || 8000);
+        }
+
+        // --- Twitch API & WebSocket Implementation ---
+        async function initTwitch() {
+            try {
+                const userRes = await fetch(`https://api.twitch.tv/helix/users?login=${CONFIG.BROADCASTER_NAME}`, {
+                    headers: { 
+                        'Client-ID': CONFIG.TWITCH_CLIENT_ID, 
+                        'Authorization': `Bearer ${CONFIG.TWITCH_OAUTH_TOKEN}` 
+                    }
+                });
+                const userData = await userRes.json();
+                const broadcasterId = userData.data[0].id;
+
+                const socket = new WebSocket('wss://eventsub.wss.twitch.tv/ws');
+                
+                socket.onmessage = async (event) => {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.metadata.message_type === 'session_welcome') {
+                        const sessionId = data.payload.session.id;
+                        const subs = ['channel.follow', 'channel.subscribe', 'channel.subscription.message', 'channel.raid', 'channel.cheer', 'channel.subscription.gift'];
+                        
+                        for (const type of subs) {
+                            await fetch('https://api.twitch.tv/helix/eventsub/subscriptions', {
+                                method: 'POST',
+                                headers: {
+                                    'Client-ID': CONFIG.TWITCH_CLIENT_ID,
+                                    'Authorization': `Bearer ${CONFIG.TWITCH_OAUTH_TOKEN}`,
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    type: type,
+                                    version: type === 'channel.follow' ? '2' : '1',
+                                    condition: { broadcaster_user_id: broadcasterId, moderator_user_id: broadcasterId },
+                                    transport: { method: 'websocket', session_id: sessionId }
+                                })
+                            });
+                        }
+                    }
+
+                    if (data.metadata.message_type === 'notification') {
+                        const evt = data.payload.event;
+                        const type = data.payload.subscription.type;
+                        if (type === 'channel.follow') twitchStats.follower = evt.user_name;
+                        if (type === 'channel.subscribe') twitchStats.subscriber = evt.user_name;
+                        if (type === 'channel.subscription.message') twitchStats.resub = evt.user_name;
+                        if (type === 'channel.raid') twitchStats.raider = evt.from_broadcaster_user_name;
+                        if (type === 'channel.cheer') twitchStats.cheer = `${evt.bits} Bits by ${evt.user_name}`;
+                        if (type === 'channel.subscription.gift') twitchStats.giftsub = `${evt.user_name} (${evt.total})`;
+                    }
+                };
+            } catch (e) { console.error("Twitch Init Failed:", e); }
+        }
+
+        initTwitch();
+        rotate();
+    </script>
+</body>
+</html>
